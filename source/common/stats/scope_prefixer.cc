@@ -33,6 +33,13 @@ Counter& ScopePrefixer::counterFromStatNameWithTags(const StatName& name,
   return scope_.counterFromStatNameWithTags(StatName(stat_name_storage.get()), tags);
 }
 
+Map& ScopePrefixer::mapFromStatNameWithTags(const StatName& name,
+                                            StatNameTagVectorOptConstRef tags) {
+  Stats::SymbolTable::StoragePtr stat_name_storage =
+      scope_.symbolTable().join({prefix_.statName(), name});
+  return scope_.mapFromStatNameWithTags(StatName(stat_name_storage.get()), tags);
+}
+
 Gauge& ScopePrefixer::gaugeFromStatNameWithTags(const StatName& name,
                                                 StatNameTagVectorOptConstRef tags,
                                                 Gauge::ImportMode import_mode) {
@@ -58,6 +65,10 @@ TextReadout& ScopePrefixer::textReadoutFromStatNameWithTags(const StatName& name
 
 CounterOptConstRef ScopePrefixer::findCounter(StatName name) const {
   return scope_.findCounter(name);
+}
+
+MapOptConstRef ScopePrefixer::findMap(StatName name) const {
+  return scope_.findMap(name);
 }
 
 GaugeOptConstRef ScopePrefixer::findGauge(StatName name) const { return scope_.findGauge(name); }

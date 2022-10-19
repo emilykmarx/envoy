@@ -39,6 +39,9 @@ public:
   virtual CounterSharedPtr makeCounter(StatName name, StatName tag_extracted_name,
                                        const StatNameTagVector& stat_name_tags) PURE;
 
+  virtual MapSharedPtr makeMap(StatName name, StatName tag_extracted_name,
+                               const StatNameTagVector& stat_name_tags) PURE;
+
   /**
    * @param name the full name of the stat.
    * @param tag_extracted_name the name of the stat with tag-values stripped out.
@@ -68,6 +71,7 @@ public:
    * done in ThreadLocalStore.
    */
   virtual void markCounterForDeletion(const CounterSharedPtr& counter) PURE;
+  virtual void markMapForDeletion(const MapSharedPtr& map) PURE;
   virtual void markGaugeForDeletion(const GaugeSharedPtr& gauge) PURE;
   virtual void markTextReadoutForDeletion(const TextReadoutSharedPtr& text_readout) PURE;
 

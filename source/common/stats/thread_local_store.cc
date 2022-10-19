@@ -30,7 +30,8 @@ ThreadLocalStoreImpl::ThreadLocalStoreImpl(Allocator& alloc)
     : alloc_(alloc), tag_producer_(std::make_unique<TagProducerImpl>()),
       stats_matcher_(std::make_unique<StatsMatcherImpl>()),
       histogram_settings_(std::make_unique<HistogramSettingsImpl>()),
-      null_counter_(alloc.symbolTable()), null_gauge_(alloc.symbolTable()),
+      null_counter_(alloc.symbolTable()), null_map_(alloc.symbolTable()),
+      null_gauge_(alloc.symbolTable()),
       null_histogram_(alloc.symbolTable()), null_text_readout_(alloc.symbolTable()),
       well_known_tags_(alloc.symbolTable().makeSet("well_known_tags")) {
   for (const auto& desc : Config::TagNames::get().descriptorVec()) {
@@ -75,6 +76,10 @@ void ThreadLocalStoreImpl::setStatsMatcher(StatsMatcherPtr&& stats_matcher) {
     removeRejectedStats<CounterSharedPtr>(central_cache->counters_,
                                           [this](const CounterSharedPtr& counter) mutable {
                                             alloc_.markCounterForDeletion(counter);
+                                          });
+    removeRejectedStats<MapSharedPtr>(central_cache->maps_,
+                                          [this](const MapSharedPtr& map) mutable {
+                                            alloc_.markMapForDeletion(map);
                                           });
     removeRejectedStats<GaugeSharedPtr>(
         central_cache->gauges_,
@@ -262,7 +267,7 @@ void ThreadLocalStoreImpl::releaseScopeCrossThread(ScopeImpl* scope) {
 
   // This method is called directly from the ScopeImpl destructor, but we can't
   // destroy scope->central_cache_ until all the TLS caches are be destroyed, as
-  // the TLS caches reference the Counters and Gauges owned by the central
+  // the TLS caches reference the Counters, Maps, and Gauges owned by the central
   // cache. We don't want the maps in the TLS caches to bump the
   // reference-count, as decrementing the count requires an allocator lock,
   // which would cause a storm of contention during scope destruction.
@@ -477,6 +482,16 @@ CounterOptConstRef ThreadLocalStoreImpl::findCounter(StatName name) const {
     return !found_counter.has_value();
   });
   return found_counter;
+}
+
+MapOptConstRef ThreadLocalStoreImpl::findMap(StatName name) const {
+  MapOptConstRef found_map;
+  iterateScopes([&found_map, name](const ScopeImplSharedPtr& scope) -> bool {
+    found_map =
+        scope->findStatLockHeld<Map>(name, scope->centralCacheLockHeld()->maps_);
+    return !found_map.has_value();
+  });
+  return found_map;
 }
 
 GaugeOptConstRef ThreadLocalStoreImpl::findGauge(StatName name) const {
@@ -724,6 +739,42 @@ Histogram& ThreadLocalStoreImpl::ScopeImpl::histogramFromStatNameWithTags(
   return **central_ref;
 }
 
+Map& ThreadLocalStoreImpl::ScopeImpl::mapFromStatNameWithTags(
+    const StatName& name, StatNameTagVectorOptConstRef stat_name_tags) {
+  if (parent_.rejectsAll()) {
+    return parent_.null_map_;
+  }
+
+  // Determine the final name based on the prefix and the passed name.
+  TagUtility::TagStatNameJoiner joiner(prefix_.statName(), name, stat_name_tags, symbolTable());
+  Stats::StatName final_stat_name = joiner.nameWithTags();
+
+  StatsMatcher::FastResult fast_reject_result = parent_.fastRejects(final_stat_name);
+  if (fast_reject_result == StatsMatcher::FastResult::Rejects) {
+    return parent_.null_map_;
+  }
+
+  // We now find the TLS cache. This might remain null if we don't have TLS
+  // initialized currently.
+  StatRefMap<Map>* tls_cache = nullptr;
+  StatNameHashSet* tls_rejected_stats = nullptr;
+  if (!parent_.shutting_down_ && parent_.tls_cache_) {
+    TlsCacheEntry& entry = parent_.tlsCache().insertScope(this->scope_id_);
+    tls_cache = &entry.maps_;
+    tls_rejected_stats = &entry.rejected_stats_;
+  }
+
+  const CentralCacheEntrySharedPtr& central_cache = centralCacheNoThreadAnalysis();
+  return safeMakeStat<Map>(
+      final_stat_name, joiner.tagExtractedName(), stat_name_tags, central_cache->maps_,
+      fast_reject_result, central_cache->rejected_stats_,
+      [](Allocator& allocator, StatName name, StatName tag_extracted_name,
+         const StatNameTagVector& tags) -> MapSharedPtr {
+        return allocator.makeMap(name, tag_extracted_name, tags);
+      },
+      tls_cache, tls_rejected_stats, parent_.null_map_);
+}
+
 TextReadout& ThreadLocalStoreImpl::ScopeImpl::textReadoutFromStatNameWithTags(
     const StatName& name, StatNameTagVectorOptConstRef stat_name_tags) {
   if (parent_.rejectsAll()) {
@@ -763,6 +814,11 @@ TextReadout& ThreadLocalStoreImpl::ScopeImpl::textReadoutFromStatNameWithTags(
 CounterOptConstRef ThreadLocalStoreImpl::ScopeImpl::findCounter(StatName name) const {
   Thread::LockGuard lock(parent_.lock_);
   return findStatLockHeld<Counter>(name, central_cache_->counters_);
+}
+
+MapOptConstRef ThreadLocalStoreImpl::ScopeImpl::findMap(StatName name) const {
+  Thread::LockGuard lock(parent_.lock_);
+  return findStatLockHeld<Map>(name, central_cache_->maps_);
 }
 
 GaugeOptConstRef ThreadLocalStoreImpl::ScopeImpl::findGauge(StatName name) const {

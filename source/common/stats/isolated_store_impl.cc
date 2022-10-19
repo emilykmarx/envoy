@@ -24,6 +24,9 @@ IsolatedStoreImpl::IsolatedStoreImpl(SymbolTable& symbol_table)
       counters_([this](StatName name) -> CounterSharedPtr {
         return alloc_.makeCounter(name, name, StatNameTagVector{});
       }),
+      maps_([this](StatName name) -> MapSharedPtr {
+        return alloc_.makeMap(name, name, StatNameTagVector{});
+      }),
       gauges_([this](StatName name, Gauge::ImportMode import_mode) -> GaugeSharedPtr {
         return alloc_.makeGauge(name, name, StatNameTagVector{}, import_mode);
       }),

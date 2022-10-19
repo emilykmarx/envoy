@@ -15,6 +15,7 @@
 #include "source/common/stats/allocator_impl.h"
 #include "source/common/stats/histogram_impl.h"
 #include "source/common/stats/null_counter.h"
+#include "source/common/stats/null_map.h"
 #include "source/common/stats/null_gauge.h"
 #include "source/common/stats/null_text_readout.h"
 #include "source/common/stats/symbol_table.h"
@@ -159,6 +160,13 @@ public:
   Counter& counterFromString(const std::string& name) override {
     return default_scope_->counterFromString(name);
   }
+  Map& mapFromStatNameWithTags(const StatName& name,
+                               StatNameTagVectorOptConstRef tags) override {
+    return default_scope_->mapFromStatNameWithTags(name, tags);
+  }
+  Map& mapFromString(const std::string& name) override {
+    return default_scope_->mapFromString(name);
+  }
   ScopeSharedPtr createScope(const std::string& name) override;
   ScopeSharedPtr scopeFromStatName(StatName name) override;
   void deliverHistogramToSinks(const Histogram& histogram, uint64_t value) override {
@@ -190,10 +198,12 @@ public:
   SymbolTable& symbolTable() override { return alloc_.symbolTable(); }
   const TagProducer& tagProducer() const { return *tag_producer_; }
   CounterOptConstRef findCounter(StatName name) const override;
+  MapOptConstRef findMap(StatName name) const override;
   GaugeOptConstRef findGauge(StatName name) const override;
   HistogramOptConstRef findHistogram(StatName name) const override;
   TextReadoutOptConstRef findTextReadout(StatName name) const override;
   bool iterate(const IterateFn<Counter>& fn) const override { return iterHelper(fn); }
+  bool iterate(const IterateFn<Map>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<Gauge>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<Histogram>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<TextReadout>& fn) const override { return iterHelper(fn); }
@@ -249,11 +259,12 @@ private:
   template <class Stat> using StatRefMap = StatNameHashMap<std::reference_wrapper<Stat>>;
 
   struct TlsCacheEntry {
-    // The counters, gauges and text readouts in the TLS cache are stored by reference,
+    // The counters, maps, gauges and text readouts in the TLS cache are stored by reference,
     // depending on the CentralCache for backing store. This avoids a potential
     // contention-storm when destructing a scope, as the counter/gauge ref-count
     // decrement in allocator_impl.cc needs to hold the single allocator mutex.
     StatRefMap<Counter> counters_;
+    StatRefMap<Map> maps_;
     StatRefMap<Gauge> gauges_;
     StatRefMap<TextReadout> text_readouts_;
 
@@ -285,6 +296,7 @@ private:
     ~CentralCacheEntry();
 
     StatNameHashMap<CounterSharedPtr> counters_;
+    StatNameHashMap<MapSharedPtr> maps_;
     StatNameHashMap<GaugeSharedPtr> gauges_;
     StatNameHashMap<ParentHistogramImplSharedPtr> histograms_;
     StatNameHashMap<TextReadoutSharedPtr> text_readouts_;
@@ -300,6 +312,8 @@ private:
     // Stats::Scope
     Counter& counterFromStatNameWithTags(const StatName& name,
                                          StatNameTagVectorOptConstRef tags) override;
+    Map& mapFromStatNameWithTags(const StatName& name,
+                                 StatNameTagVectorOptConstRef tags) override;
     void deliverHistogramToSinks(const Histogram& histogram, uint64_t value) override;
     Gauge& gaugeFromStatNameWithTags(const StatName& name, StatNameTagVectorOptConstRef tags,
                                      Gauge::ImportMode import_mode) override;
@@ -321,6 +335,10 @@ private:
     Counter& counterFromString(const std::string& name) override {
       StatNameManagedStorage storage(name, symbolTable());
       return counterFromStatName(storage.statName());
+    }
+    Map& mapFromString(const std::string& name) override {
+      StatNameManagedStorage storage(name, symbolTable());
+      return mapFromStatName(storage.statName());
     }
 
     Gauge& gaugeFromString(const std::string& name, Gauge::ImportMode import_mode) override {
@@ -351,6 +369,10 @@ private:
       Thread::LockGuard lock(parent_.lock_);
       return iterateLockHeld(fn);
     }
+    bool iterate(const IterateFn<Map>& fn) const override {
+      Thread::LockGuard lock(parent_.lock_);
+      return iterateLockHeld(fn);
+    }
     bool iterate(const IterateFn<Gauge>& fn) const override {
       Thread::LockGuard lock(parent_.lock_);
       return iterateLockHeld(fn);
@@ -367,6 +389,9 @@ private:
     bool iterateLockHeld(const IterateFn<Counter>& fn) const {
       return iterHelper(fn, centralCacheLockHeld()->counters_);
     }
+    bool iterateLockHeld(const IterateFn<Map>& fn) const {
+      return iterHelper(fn, centralCacheLockHeld()->maps_);
+    }
     bool iterateLockHeld(const IterateFn<Gauge>& fn) const {
       return iterHelper(fn, centralCacheLockHeld()->gauges_);
     }
@@ -380,6 +405,7 @@ private:
     // NOTE: The find methods assume that `name` is fully-qualified.
     // Implementations will not add the scope prefix.
     CounterOptConstRef findCounter(StatName name) const override;
+    MapOptConstRef findMap(StatName name) const override;
     GaugeOptConstRef findGauge(StatName name) const override;
     HistogramOptConstRef findHistogram(StatName name) const override;
     TextReadoutOptConstRef findTextReadout(StatName name) const override;
@@ -547,6 +573,7 @@ private:
   OptRef<ThreadLocal::Instance> tls_;
 
   NullCounterImpl null_counter_;
+  NullMapImpl null_map_;
   NullGaugeImpl null_gauge_;
   NullHistogramImpl null_histogram_;
   NullTextReadoutImpl null_text_readout_;

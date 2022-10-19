@@ -20,6 +20,8 @@ public:
   ScopeSharedPtr scopeFromStatName(StatName name) override;
   Counter& counterFromStatNameWithTags(const StatName& name,
                                        StatNameTagVectorOptConstRef tags) override;
+  Map& mapFromStatNameWithTags(const StatName& name,
+                               StatNameTagVectorOptConstRef tags) override;
   Gauge& gaugeFromStatNameWithTags(const StatName& name, StatNameTagVectorOptConstRef tags,
                                    Gauge::ImportMode import_mode) override;
   Histogram& histogramFromStatNameWithTags(const StatName& name, StatNameTagVectorOptConstRef tags,
@@ -31,6 +33,10 @@ public:
   Counter& counterFromString(const std::string& name) override {
     StatNameManagedStorage storage(name, symbolTable());
     return Scope::counterFromStatName(storage.statName());
+  }
+  Map& mapFromString(const std::string& name) override {
+    StatNameManagedStorage storage(name, symbolTable());
+    return Scope::mapFromStatName(storage.statName());
   }
   Gauge& gaugeFromString(const std::string& name, Gauge::ImportMode import_mode) override {
     StatNameManagedStorage storage(name, symbolTable());
@@ -46,6 +52,7 @@ public:
   }
 
   CounterOptConstRef findCounter(StatName name) const override;
+  MapOptConstRef findMap(StatName name) const override;
   GaugeOptConstRef findGauge(StatName name) const override;
   HistogramOptConstRef findHistogram(StatName name) const override;
   TextReadoutOptConstRef findTextReadout(StatName name) const override;
@@ -56,6 +63,7 @@ public:
   NullGaugeImpl& nullGauge(const std::string& str) override { return scope_.nullGauge(str); }
 
   bool iterate(const IterateFn<Counter>& fn) const override { return iterHelper(fn); }
+  bool iterate(const IterateFn<Map>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<Gauge>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<Histogram>& fn) const override { return iterHelper(fn); }
   bool iterate(const IterateFn<TextReadout>& fn) const override { return iterHelper(fn); }

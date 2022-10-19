@@ -25,12 +25,18 @@ const char AllocatorImpl::DecrementToZeroSyncPoint[] = "decrement-zero";
 
 AllocatorImpl::~AllocatorImpl() {
   ASSERT(counters_.empty());
+  ASSERT(maps_.empty());
   ASSERT(gauges_.empty());
 
 #ifndef NDEBUG
   // Move deleted stats into the sets for the ASSERTs in removeFromSetLockHeld to function.
   for (auto& counter : deleted_counters_) {
     auto insertion = counters_.insert(counter.get());
+    // Assert that there were no duplicates.
+    ASSERT(insertion.second);
+  }
+  for (auto& map : deleted_maps_) {
+    auto insertion = maps_.insert(map.get());
     // Assert that there were no duplicates.
     ASSERT(insertion.second);
   }
@@ -53,16 +59,19 @@ void AllocatorImpl::debugPrint() {
   for (Counter* counter : counters_) {
     ENVOY_LOG_MISC(info, "counter: {}", symbolTable().toString(counter->statName()));
   }
+  for (Map* map : maps_) {
+    ENVOY_LOG_MISC(info, "map: {}", symbolTable().toString(map->statName()));
+  }
   for (Gauge* gauge : gauges_) {
     ENVOY_LOG_MISC(info, "gauge: {}", symbolTable().toString(gauge->statName()));
   }
 }
 #endif
 
-// Counter, Gauge and TextReadout inherit from RefcountInterface and
+// Counter, Map, Gauge and TextReadout inherit from RefcountInterface and
 // Metric. MetricImpl takes care of most of the Metric API, but we need to cover
 // symbolTable() here, which we don't store directly, but get it via the alloc,
-// which we need in order to clean up the counter and gauge maps in that class
+// which we need in order to clean up the counter, map, and gauge maps in that class
 // when they are destroyed.
 //
 // We implement the RefcountInterface API to avoid weak counter and destructor overhead in
@@ -112,8 +121,8 @@ public:
   uint32_t use_count() const override { return ref_count_; }
 
   /**
-   * We must atomically remove the counter/gauges from the allocator's sets when
-   * our ref-count decrement hits zero. The counters and gauges are held in
+   * We must atomically remove the counter/map/gauges from the allocator's sets when
+   * our ref-count decrement hits zero. The counters, maps, and gauges are held in
    * distinct sets so we virtualize this removal helper.
    */
   virtual void removeFromSetLockHeld() ABSL_EXCLUSIVE_LOCKS_REQUIRED(alloc_.mutex_) PURE;
@@ -122,13 +131,13 @@ protected:
   AllocatorImpl& alloc_;
 
   // ref_count_ can be incremented as an atomic, without taking a new lock, as
-  // the critical 0->1 transition occurs in makeCounter and makeGauge, which
+  // the critical 0->1 transition occurs in makeCounter, makeMap, and makeGauge, which
   // already hold the lock. Increment also occurs when copying shared pointers,
   // but these are always in transition to ref-count 2 or higher, and thus
   // cannot race with a decrement to zero.
   //
   // However, we must hold alloc_.mutex_ when decrementing ref_count_ so that
-  // when it hits zero we can atomically remove it from alloc_.counters_ or
+  // when it hits zero we can atomically remove it from alloc_.counters_, alloc_.maps_, or
   // alloc_.gauges_. We leave it atomic to avoid taking the lock on increment.
   std::atomic<uint32_t> ref_count_{0};
 
@@ -163,6 +172,34 @@ public:
 private:
   std::atomic<uint64_t> value_{0};
   std::atomic<uint64_t> pending_increment_{0};
+};
+
+class MapImpl : public StatsSharedImpl<Map> {
+public:
+  MapImpl(StatName name, AllocatorImpl& alloc, StatName tag_extracted_name,
+              const StatNameTagVector& stat_name_tags)
+      : StatsSharedImpl(name, alloc, tag_extracted_name, stat_name_tags) {}
+
+  void removeFromSetLockHeld() ABSL_EXCLUSIVE_LOCKS_REQUIRED(alloc_.mutex_) override {
+    const size_t count = alloc_.maps_.erase(statName());
+    ASSERT(count == 1);
+  }
+
+  // Stats::Map
+  void insert(uint64_t key, uint64_t val) override {
+    absl::MutexLock lock(&mutex_);
+    value_.insert(std::make_pair(key, val));
+    flags_ |= Flags::Used;
+  }
+  std::unordered_map<uint64_t, uint64_t> value() const override {
+    absl::MutexLock lock(&mutex_);
+    return value_;
+  }
+
+private:
+  // PERF Could consider more fine-grained locking or an absl map
+  mutable absl::Mutex mutex_;
+  std::unordered_map<uint64_t, uint64_t> value_ ABSL_GUARDED_BY(mutex_);
 };
 
 class GaugeImpl : public StatsSharedImpl<Gauge> {
@@ -285,6 +322,7 @@ private:
 CounterSharedPtr AllocatorImpl::makeCounter(StatName name, StatName tag_extracted_name,
                                             const StatNameTagVector& stat_name_tags) {
   Thread::LockGuard lock(mutex_);
+  ASSERT(maps_.find(name) == maps_.end());
   ASSERT(gauges_.find(name) == gauges_.end());
   ASSERT(text_readouts_.find(name) == text_readouts_.end());
   auto iter = counters_.find(name);
@@ -301,10 +339,26 @@ CounterSharedPtr AllocatorImpl::makeCounter(StatName name, StatName tag_extracte
   return counter;
 }
 
+MapSharedPtr AllocatorImpl::makeMap(StatName name, StatName tag_extracted_name,
+                                            const StatNameTagVector& stat_name_tags) {
+  Thread::LockGuard lock(mutex_);
+  ASSERT(counters_.find(name) == counters_.end());
+  ASSERT(gauges_.find(name) == gauges_.end());
+  ASSERT(text_readouts_.find(name) == text_readouts_.end());
+  auto iter = maps_.find(name);
+  if (iter != maps_.end()) {
+    return MapSharedPtr(*iter);
+  }
+  auto map = MapSharedPtr(new MapImpl(name, *this, tag_extracted_name, stat_name_tags));
+  maps_.insert(map.get());
+  return map;
+}
+
 GaugeSharedPtr AllocatorImpl::makeGauge(StatName name, StatName tag_extracted_name,
                                         const StatNameTagVector& stat_name_tags,
                                         Gauge::ImportMode import_mode) {
   Thread::LockGuard lock(mutex_);
+  ASSERT(maps_.find(name) == maps_.end());
   ASSERT(counters_.find(name) == counters_.end());
   ASSERT(text_readouts_.find(name) == text_readouts_.end());
   auto iter = gauges_.find(name);
@@ -325,6 +379,7 @@ GaugeSharedPtr AllocatorImpl::makeGauge(StatName name, StatName tag_extracted_na
 TextReadoutSharedPtr AllocatorImpl::makeTextReadout(StatName name, StatName tag_extracted_name,
                                                     const StatNameTagVector& stat_name_tags) {
   Thread::LockGuard lock(mutex_);
+  ASSERT(maps_.find(name) == maps_.end());
   ASSERT(counters_.find(name) == counters_.end());
   ASSERT(gauges_.find(name) == gauges_.end());
   auto iter = text_readouts_.find(name);
@@ -460,6 +515,19 @@ void AllocatorImpl::markCounterForDeletion(const CounterSharedPtr& counter) {
   deleted_counters_.emplace_back(*iter);
   counters_.erase(iter);
   sinked_counters_.erase(counter.get());
+}
+
+void AllocatorImpl::markMapForDeletion(const MapSharedPtr& map) {
+  Thread::LockGuard lock(mutex_);
+  auto iter = maps_.find(map->statName());
+  if (iter == maps_.end()) {
+    // This has already been marked for deletion.
+    return;
+  }
+  ASSERT(map.get() == *iter);
+  // Duplicates are ASSERTed in ~AllocatorImpl.
+  deleted_maps_.emplace_back(*iter);
+  maps_.erase(iter);
 }
 
 void AllocatorImpl::markGaugeForDeletion(const GaugeSharedPtr& gauge) {

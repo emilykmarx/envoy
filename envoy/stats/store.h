@@ -27,7 +27,7 @@ class Sink;
 class SinkPredicates;
 
 /**
- * A store for all known counters, gauges, and timers.
+ * A store for all known counters, maps, gauges, and timers.
  */
 class Store : public Scope {
 public:

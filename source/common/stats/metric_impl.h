@@ -56,18 +56,18 @@ private:
 // This necessitates a custom comparator and hasher, using the StatNamePtr's
 // own StatNamePtrHash and StatNamePtrCompare operators.
 //
-// This is used by AllocatorImpl for counters, gauges, and text-readouts, and
+// This is used by AllocatorImpl for counters, maps, gauges, and text-readouts, and
 // is also used by thread_local_store.h for histograms.
 template <class StatType>
 using StatSet = absl::flat_hash_set<StatType*, MetricHelper::Hash, MetricHelper::Compare>;
 
 /**
- * Partial implementation of the Metric interface on behalf of Counters, Gauges,
+ * Partial implementation of the Metric interface on behalf of Counters, Maps, Gauges,
  * and Histograms. It leaves symbolTable() unimplemented so that implementations
- * of stats managed by an allocator, specifically Counters and Gauges, can keep
+ * of stats managed by an allocator, specifically Counters, Maps, and Gauges, can keep
  * a reference to the allocator instead, and derive the symbolTable() from that.
  *
- * We templatize on the base class (Counter, Gauge, or Histogram), rather than
+ * We templatize on the base class (Counter, Map, Gauge, or Histogram), rather than
  * using multiple virtual inheritance, as this avoids the overhead of an extra
  * vptr per instance. This is important for stats because there can be many
  * stats in systems with large numbers of clusters and hosts, and a few 8-byte

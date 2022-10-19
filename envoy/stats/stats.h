@@ -124,6 +124,22 @@ public:
 
 using CounterSharedPtr = RefcountPtr<Counter>;
 
+
+/**
+ * It's a map. Hot restart not supported (same as TextReadout).
+ * Protected by its own global lock (same as TextReadout).
+ * Not flushed to sink.
+ */
+class Map : public Metric {
+public:
+  ~Map() override = default;
+
+  virtual void insert(uint64_t key, uint64_t val) PURE;
+  virtual std::unordered_map<uint64_t, uint64_t> value() const PURE;
+};
+
+using MapSharedPtr = RefcountPtr<Map>;
+
 /**
  * A gauge that can both increment and decrement.
  */

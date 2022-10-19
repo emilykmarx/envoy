@@ -60,6 +60,7 @@ envoy_cc_library(
     deps = [
         ":histogram_lib",
         ":null_counter_lib",
+        ":null_map_lib",
         ":null_gauge_lib",
         ":null_text_readout_lib",
         ":scope_prefixer_lib",
@@ -96,6 +97,16 @@ envoy_cc_library(
 envoy_cc_library(
     name = "null_counter_lib",
     hdrs = ["null_counter.h"],
+    deps = [
+        ":metric_impl_lib",
+        ":symbol_table_lib",
+        "//envoy/stats:stats_interface",
+    ],
+)
+
+envoy_cc_library(
+    name = "null_map_lib",
+    hdrs = ["null_map.h"],
     deps = [
         ":metric_impl_lib",
         ":symbol_table_lib",
@@ -253,6 +264,7 @@ envoy_cc_library(
         ":allocator_lib",
         ":histogram_lib",
         ":null_counter_lib",
+        ":null_map_lib",
         ":null_gauge_lib",
         ":null_text_readout_lib",
         ":scope_prefixer_lib",

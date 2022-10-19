@@ -70,6 +70,7 @@ namespace Envoy {
 
 // Fully-qualified for use in external callsites.
 #define GENERATE_COUNTER_STRUCT(NAME) Envoy::Stats::Counter& NAME##_;
+#define GENERATE_MAP_STRUCT(NAME) Envoy::Stats::Map& NAME##_;
 #define GENERATE_GAUGE_STRUCT(NAME, MODE) Envoy::Stats::Gauge& NAME##_;
 #define GENERATE_HISTOGRAM_STRUCT(NAME, UNIT) Envoy::Stats::Histogram& NAME##_;
 #define GENERATE_TEXT_READOUT_STRUCT(NAME) Envoy::Stats::TextReadout& NAME##_;
@@ -89,12 +90,14 @@ static inline std::string statPrefixJoin(absl::string_view prefix, absl::string_
 }
 
 #define POOL_COUNTER_PREFIX(POOL, PREFIX) (POOL).counterFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_
+#define POOL_MAP_PREFIX(POOL, PREFIX) (POOL).mapFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_
 #define POOL_GAUGE_PREFIX(POOL, PREFIX) (POOL).gaugeFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_MODE_
 #define POOL_HISTOGRAM_PREFIX(POOL, PREFIX) (POOL).histogramFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_UNIT_
 #define POOL_TEXT_READOUT_PREFIX(POOL, PREFIX) (POOL).textReadoutFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_
 #define POOL_STAT_NAME_PREFIX(POOL, PREFIX) (POOL).symbolTable().textReadoutFromString(Envoy::statPrefixJoin(PREFIX, FINISH_STAT_DECL_
 
 #define POOL_COUNTER(POOL) POOL_COUNTER_PREFIX(POOL, "")
+#define POOL_MAP(POOL) POOL_MAP_PREFIX(POOL, "")
 #define POOL_GAUGE(POOL) POOL_GAUGE_PREFIX(POOL, "")
 #define POOL_HISTOGRAM(POOL) POOL_HISTOGRAM_PREFIX(POOL, "")
 #define POOL_TEXT_READOUT(POOL) POOL_TEXT_READOUT_PREFIX(POOL, "")

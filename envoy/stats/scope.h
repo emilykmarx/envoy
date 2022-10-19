@@ -14,6 +14,7 @@ namespace Envoy {
 namespace Stats {
 
 class Counter;
+class Map;
 class Gauge;
 class Histogram;
 class NullGaugeImpl;
@@ -21,6 +22,7 @@ class Scope;
 class TextReadout;
 
 using CounterOptConstRef = absl::optional<std::reference_wrapper<const Counter>>;
+using MapOptConstRef = absl::optional<std::reference_wrapper<const Map>>;
 using GaugeOptConstRef = absl::optional<std::reference_wrapper<const Gauge>>;
 using HistogramOptConstRef = absl::optional<std::reference_wrapper<const Histogram>>;
 using TextReadoutOptConstRef = absl::optional<std::reference_wrapper<const TextReadout>>;
@@ -97,6 +99,10 @@ public:
   Counter& counterFromStatName(const StatName& name) {
     return counterFromStatNameWithTags(name, absl::nullopt);
   }
+
+  Map& mapFromStatName(const StatName& name) {
+    return mapFromStatNameWithTags(name, absl::nullopt);
+  }
   /**
    * Creates a Counter from the stat name and tags. If tags are not provided, tag extraction
    * will be performed on the name.
@@ -107,12 +113,18 @@ public:
   virtual Counter& counterFromStatNameWithTags(const StatName& name,
                                                StatNameTagVectorOptConstRef tags) PURE;
 
+  virtual Map& mapFromStatNameWithTags(const StatName& name,
+                                       StatNameTagVectorOptConstRef tags) PURE;
+
   /**
    * TODO(#6667): this variant is deprecated: use counterFromStatName.
    * @param name The name, expressed as a string.
    * @return a counter within the scope's namespace.
    */
   virtual Counter& counterFromString(const std::string& name) PURE;
+
+  // May be deprecated eventually, but seems to be the move for now
+  virtual Map& mapFromString(const std::string& name) PURE;
 
   /**
    * Creates a Gauge from the stat name. Tag extraction will be performed on the name.
@@ -210,6 +222,8 @@ public:
    */
   virtual CounterOptConstRef findCounter(StatName name) const PURE;
 
+  virtual MapOptConstRef findMap(StatName name) const PURE;
+
   /**
    * @param The name of the stat, obtained from the SymbolTable.
    * @return a reference to a gauge within the scope's namespace, if it exists.
@@ -244,6 +258,8 @@ public:
    * @return false if fn(counter) return false during iteration, true if every counter was hit.
    */
   virtual bool iterate(const IterateFn<Counter>& fn) const PURE;
+
+  virtual bool iterate(const IterateFn<Map>& fn) const PURE;
 
   /**
    * Calls 'fn' for every gauge. Note that in the case of overlapping scopes,

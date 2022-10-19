@@ -26,6 +26,8 @@ public:
   // Allocator
   CounterSharedPtr makeCounter(StatName name, StatName tag_extracted_name,
                                const StatNameTagVector& stat_name_tags) override;
+  MapSharedPtr makeMap(StatName name, StatName tag_extracted_name,
+                       const StatNameTagVector& stat_name_tags) override;
   GaugeSharedPtr makeGauge(StatName name, StatName tag_extracted_name,
                            const StatNameTagVector& stat_name_tags,
                            Gauge::ImportMode import_mode) override;
@@ -60,6 +62,7 @@ public:
   bool isMutexLockedForTest();
 
   void markCounterForDeletion(const CounterSharedPtr& counter) override;
+  void markMapForDeletion(const MapSharedPtr& map) override;
   void markGaugeForDeletion(const GaugeSharedPtr& gauge) override;
   void markTextReadoutForDeletion(const TextReadoutSharedPtr& text_readout) override;
 
@@ -70,6 +73,7 @@ protected:
 private:
   template <class BaseClass> friend class StatsSharedImpl;
   friend class CounterImpl;
+  friend class MapImpl;
   friend class GaugeImpl;
   friend class TextReadoutImpl;
   friend class NotifyingAllocatorImpl;
@@ -81,6 +85,7 @@ private:
   mutable Thread::MutexBasicLockable mutex_;
 
   StatSet<Counter> counters_ ABSL_GUARDED_BY(mutex_);
+  StatSet<Map> maps_ ABSL_GUARDED_BY(mutex_);
   StatSet<Gauge> gauges_ ABSL_GUARDED_BY(mutex_);
   StatSet<TextReadout> text_readouts_ ABSL_GUARDED_BY(mutex_);
 
@@ -93,6 +98,7 @@ private:
   // to exist to hold it as (e.g.) a CounterSharedPtr rather than a Counter&
   // but that would be fairly complex to change.
   std::vector<CounterSharedPtr> deleted_counters_ ABSL_GUARDED_BY(mutex_);
+  std::vector<MapSharedPtr> deleted_maps_ ABSL_GUARDED_BY(mutex_);
   std::vector<GaugeSharedPtr> deleted_gauges_ ABSL_GUARDED_BY(mutex_);
   std::vector<TextReadoutSharedPtr> deleted_text_readouts_ ABSL_GUARDED_BY(mutex_);
 

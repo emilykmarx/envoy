@@ -11,6 +11,7 @@
 #include "source/common/common/utility.h"
 #include "source/common/stats/allocator_impl.h"
 #include "source/common/stats/null_counter.h"
+#include "source/common/stats/null_map.h"
 #include "source/common/stats/null_gauge.h"
 #include "source/common/stats/store_impl.h"
 #include "source/common/stats/symbol_table.h"
@@ -27,6 +28,8 @@ namespace Stats {
  */
 template <class Base> class IsolatedStatsCache {
 public:
+  // Note: CounterAllocator/counter_alloc_()/get() are also used for Map
+  // since the signature is the same
   using CounterAllocator = std::function<RefcountPtr<Base>(StatName name)>;
   using GaugeAllocator = std::function<RefcountPtr<Base>(StatName, Gauge::ImportMode)>;
   using HistogramAllocator = std::function<RefcountPtr<Base>(StatName, Histogram::Unit)>;
@@ -141,6 +144,12 @@ public:
     Counter& counter = counters_.get(joiner.nameWithTags());
     return counter;
   }
+  Map& mapFromStatNameWithTags(const StatName& name,
+                               StatNameTagVectorOptConstRef tags) override {
+    TagUtility::TagStatNameJoiner joiner(name, tags, symbolTable());
+    Map& map = maps_.get(joiner.nameWithTags());
+    return map;
+  }
   ScopeSharedPtr createScope(const std::string& name) override;
   ScopeSharedPtr scopeFromStatName(StatName name) override;
   void deliverHistogramToSinks(const Histogram&, uint64_t) override {}
@@ -167,6 +176,7 @@ public:
     return text_readout;
   }
   CounterOptConstRef findCounter(StatName name) const override { return counters_.find(name); }
+  MapOptConstRef findMap(StatName name) const override { return maps_.find(name); }
   GaugeOptConstRef findGauge(StatName name) const override { return gauges_.find(name); }
   HistogramOptConstRef findHistogram(StatName name) const override {
     return histograms_.find(name);
@@ -176,6 +186,7 @@ public:
   }
 
   bool iterate(const IterateFn<Counter>& fn) const override { return counters_.iterate(fn); }
+  bool iterate(const IterateFn<Map>& fn) const override { return maps_.iterate(fn); }
   bool iterate(const IterateFn<Gauge>& fn) const override { return gauges_.iterate(fn); }
   bool iterate(const IterateFn<Histogram>& fn) const override { return histograms_.iterate(fn); }
   bool iterate(const IterateFn<TextReadout>& fn) const override {
@@ -202,6 +213,10 @@ public:
   Counter& counterFromString(const std::string& name) override {
     StatNameManagedStorage storage(name, symbolTable());
     return counterFromStatName(storage.statName());
+  }
+  Map& mapFromString(const std::string& name) override {
+    StatNameManagedStorage storage(name, symbolTable());
+    return mapFromStatName(storage.statName());
   }
   Gauge& gaugeFromString(const std::string& name, Gauge::ImportMode import_mode) override {
     StatNameManagedStorage storage(name, symbolTable());
@@ -263,6 +278,7 @@ private:
   SymbolTablePtr symbol_table_storage_;
   AllocatorImpl alloc_;
   IsolatedStatsCache<Counter> counters_;
+  IsolatedStatsCache<Map> maps_;
   IsolatedStatsCache<Gauge> gauges_;
   IsolatedStatsCache<Histogram> histograms_;
   IsolatedStatsCache<TextReadout> text_readouts_;
