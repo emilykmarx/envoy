@@ -186,20 +186,31 @@ public:
   }
 
   // Stats::Map
-  void insert(uint64_t key, uint64_t val) override {
+  void insert(absl::string_view key, absl::string_view val) override {
+    std::string key_copy(key);
+    std::string val_copy(val);
     absl::MutexLock lock(&mutex_);
-    value_.insert(std::make_pair(key, val));
+    // Don't move() the val_copy here -- may need to insert() again
+    std::pair<it, bool> insert_ret = value_.insert(
+      std::make_pair(std::move(key_copy),
+                     absl::flat_hash_set<std::string>({val_copy})));
+    if (!insert_ret.second) {
+      insert_ret.first->second.insert(std::move(val_copy));
+    }
+
     flags_ |= Flags::Used;
   }
-  std::unordered_map<uint64_t, uint64_t> value() const override {
+
+  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const override {
     absl::MutexLock lock(&mutex_);
     return value_;
   }
 
 private:
-  // PERF Could consider more fine-grained locking or an absl map
+  // PERF Could consider more fine-grained locking
   mutable absl::Mutex mutex_;
-  std::unordered_map<uint64_t, uint64_t> value_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value_ ABSL_GUARDED_BY(mutex_);
+  typedef typename absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>>::iterator it;
 };
 
 class GaugeImpl : public StatsSharedImpl<Gauge> {

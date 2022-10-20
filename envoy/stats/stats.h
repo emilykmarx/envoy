@@ -10,6 +10,7 @@
 #include "envoy/stats/tag.h"
 
 #include "absl/strings/string_view.h"
+#include "absl/container/flat_hash_set.h"
 
 namespace Envoy {
 namespace Stats {
@@ -134,8 +135,8 @@ class Map : public Metric {
 public:
   ~Map() override = default;
 
-  virtual void insert(uint64_t key, uint64_t val) PURE;
-  virtual std::unordered_map<uint64_t, uint64_t> value() const PURE;
+  virtual void insert(absl::string_view key, absl::string_view val) PURE;
+  virtual absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const PURE;
 };
 
 using MapSharedPtr = RefcountPtr<Map>;

@@ -23,9 +23,9 @@ public:
     MetricImpl::clear(symbol_table_);
   }
 
-  void insert(uint64_t, uint64_t) override {}
-  std::unordered_map<uint64_t, uint64_t> value() const override {
-    return std::unordered_map<uint64_t, uint64_t>();
+  void insert(absl::string_view, absl::string_view) override {}
+  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const override {
+    return absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>>();
   }
 
   // Metric
