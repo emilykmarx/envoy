@@ -65,7 +65,8 @@ public:
 
   // Http::AsyncClient
   Request* send(RequestMessagePtr&& request, Callbacks& callbacks,
-                const AsyncClient::RequestOptions& options) override;
+                const AsyncClient::RequestOptions& options,
+                absl::string_view override_host = absl::string_view()) override;
   Stream* start(StreamCallbacks& callbacks, const AsyncClient::StreamOptions& options) override;
   Event::Dispatcher& dispatcher() override { return dispatcher_; }
 
@@ -422,8 +423,13 @@ private:
       std::function<void(const Router::RouteSpecificFilterConfig&)>) const override {}
   void requestRouteConfigUpdate(Http::RouteConfigUpdatedCallbackSharedPtr) override {}
   void resetIdleTimer() override {}
-  void setUpstreamOverrideHost(absl::string_view) override {}
-  absl::optional<absl::string_view> upstreamOverrideHost() const override { return {}; }
+  // No one was calling this previously, so should be ok to modify
+  void setUpstreamOverrideHost(absl::string_view override_host) override {
+    override_host_ = std::string(override_host);
+  }
+  absl::optional<absl::string_view> upstreamOverrideHost() const override {
+    return override_host_;
+  }
 
   // ScopeTrackedObject
   void dumpState(std::ostream& os, int indent_level) const override {
@@ -447,6 +453,7 @@ private:
   bool is_grpc_request_{};
   bool is_head_request_{false};
   bool send_xff_{true};
+  std::string override_host_{};
 
   friend class AsyncClientImpl;
   friend class AsyncClientImplUnitTest;

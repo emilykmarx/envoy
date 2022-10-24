@@ -321,13 +321,15 @@ public:
    * @param request the request to send.
    * @param callbacks the callbacks to be notified of request status.
    * @param options the data struct to control the request sending.
+   * @param override_host if passed, send to this endpoint instead of load balancing.
    * @return a request handle or nullptr if no request could be created. NOTE: In this case
    *         onFailure() has already been called inline. The client owns the request and the
    *         handle should just be used to cancel.
    */
 
   virtual Request* send(RequestMessagePtr&& request, Callbacks& callbacks,
-                        const RequestOptions& options) PURE;
+                        const RequestOptions& options,
+                        absl::string_view override_host = absl::string_view()) PURE;
 
   /**
    * Start an HTTP stream asynchronously.

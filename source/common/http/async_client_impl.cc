@@ -52,9 +52,13 @@ AsyncClientImpl::~AsyncClientImpl() {
 
 AsyncClient::Request* AsyncClientImpl::send(RequestMessagePtr&& request,
                                             AsyncClient::Callbacks& callbacks,
-                                            const AsyncClient::RequestOptions& options) {
+                                            const AsyncClient::RequestOptions& options,
+                                            absl::string_view override_host) {
   AsyncRequestImpl* async_request =
       new AsyncRequestImpl(std::move(request), *this, callbacks, options);
+  if (!override_host.empty()) {
+    async_request->setUpstreamOverrideHost(override_host);
+  }
   async_request->initialize();
   std::unique_ptr<AsyncStreamImpl> new_request{async_request};
 
