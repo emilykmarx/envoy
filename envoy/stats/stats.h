@@ -8,9 +8,11 @@
 #include "envoy/common/pure.h"
 #include "envoy/stats/refcount_ptr.h"
 #include "envoy/stats/tag.h"
+#include "envoy/http/header_map.h"
+//#include "source/common/http/header_map_impl.h"
 
 #include "absl/strings/string_view.h"
-#include "absl/container/flat_hash_set.h"
+//#include "absl/container/flat_hash_set.h"
 
 namespace Envoy {
 namespace Stats {
@@ -134,9 +136,34 @@ using CounterSharedPtr = RefcountPtr<Counter>;
 class Map : public Metric {
 public:
   ~Map() override = default;
+  struct MsgHistory {
+    // Whether we've already handled a trace request for this x_request_id
+    bool handled{};
+    // Request sent as a result of the original e2e request
+    struct RequestSent {
+      // Where request was sent
+      std::string endpoint;
+      /** Request headers.
+       *  Would be a RequestHeaderMapImpl but I don't want to deal with circular deps.
+       *  This also forces us to avoid copying around headers. */
+      std::unique_ptr<Http::RequestHeaderMap> headers;
+      bool operator < (const RequestSent &other) const {
+        /** TODO how should < be defined for headers? Just using path as temp.
+         * Check which headers envoy overwrites.
+         * See impl of operator == in header_map_impl.h */
+        std::string my_path = std::string(headers->getPathValue());
+        std::string other_path = std::string(other.headers->getPathValue());
+        return std::tie(endpoint, my_path) < std::tie(other.endpoint, other_path);
+      }
+    };
+    std::set<RequestSent> requests_sent;
+  };
 
-  virtual void insert(absl::string_view key, absl::string_view val) PURE;
-  virtual absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const PURE;
+  virtual void insert(absl::string_view x_request_id, absl::string_view endpoint,
+                      const Http::RequestHeaderMap* headers) PURE;
+  virtual bool setHandled(absl::string_view x_request_id) PURE;
+  virtual const MsgHistory* getMsgHistory(absl::string_view x_request_id) PURE;
+  // No value() exposed, since can't copy the unique_ptr
 };
 
 using MapSharedPtr = RefcountPtr<Map>;

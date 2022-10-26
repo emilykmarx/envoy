@@ -23,10 +23,9 @@ public:
     MetricImpl::clear(symbol_table_);
   }
 
-  void insert(absl::string_view, absl::string_view) override {}
-  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const override {
-    return absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>>();
-  }
+  void insert(absl::string_view, absl::string_view, const Http::RequestHeaderMap*) override {}
+  bool setHandled(absl::string_view) override { return {}; }
+  const MsgHistory* getMsgHistory(absl::string_view) override { return {}; }
 
   // Metric
   bool used() const override { return false; }

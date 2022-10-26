@@ -34,6 +34,7 @@ envoy_cc_library(
         ":refcount_ptr_interface",
         "//envoy/common:interval_set_interface",
         "//envoy/common:time_interface",
+        "//envoy/http:header_map_interface",
     ],
 )
 

@@ -15,8 +15,7 @@
 #include "source/common/stats/metric_impl.h"
 #include "source/common/stats/stat_merger.h"
 #include "source/common/stats/symbol_table.h"
-
-#include "absl/container/flat_hash_set.h"
+#include "source/common/http/header_map_impl.h"
 
 namespace Envoy {
 namespace Stats {
@@ -186,31 +185,62 @@ public:
   }
 
   // Stats::Map
-  void insert(absl::string_view key, absl::string_view val) override {
-    std::string key_copy(key);
-    std::string val_copy(val);
+  void insert(absl::string_view x_request_id, absl::string_view endpoint,
+              const Http::RequestHeaderMap* headers) override {
+    std::string x_request_id_copy(x_request_id);
+    /** PERF Could probably skip storing some of these headers if apps don't use them
+     *  to decide where to send messages, or if envoy modifies them on the way out */
+    std::unique_ptr<Http::RequestHeaderMap> headers_copy =
+        Http::createHeaderMap<Http::RequestHeaderMapImpl>(*headers);
+
+    MsgHistory::RequestSent request_sent = {std::string(endpoint), std::move(headers_copy)};
+
     absl::MutexLock lock(&mutex_);
-    // Don't move() the val_copy here -- may need to insert() again
-    std::pair<it, bool> insert_ret = value_.insert(
-      std::make_pair(std::move(key_copy),
-                     absl::flat_hash_set<std::string>({val_copy})));
-    if (!insert_ret.second) {
-      insert_ret.first->second.insert(std::move(val_copy));
+
+    MapIt found_req_id = value_.find(x_request_id_copy);
+    if (found_req_id == value_.end()) {
+      std::set<MsgHistory::RequestSent> requests_sent;
+      requests_sent.insert(std::move(request_sent));
+      MsgHistory msg_history{false, std::move(requests_sent)};
+      value_.insert(
+          std::make_pair(std::move(x_request_id_copy), std::move(msg_history)));
+    } else {
+      // Request ID already existed
+      found_req_id->second.requests_sent.insert(std::move(request_sent));
     }
 
     flags_ |= Flags::Used;
   }
 
-  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value() const override {
+  bool setHandled(absl::string_view x_request_id) override {
     absl::MutexLock lock(&mutex_);
-    return value_;
+    MapIt found_msg_history = value_.find(std::string(x_request_id));
+    if (found_msg_history == value_.end()) {
+      return false;
+    }
+    found_msg_history->second.handled = true;
+    return true;
   }
+
+  /** Wrapper around value().find() to avoid copying the whole map on return
+   * (which we can't do anyway given the unique_ptr).
+   * Note: This returns a pointer into the map, so caller should be careful about lifetime. */
+  const MsgHistory* getMsgHistory(absl::string_view x_request_id) override {
+    absl::MutexLock lock(&mutex_);
+    MapIt found_msg_history = value_.find(std::string(x_request_id));
+    if (found_msg_history == value_.end()) {
+      return {};
+    }
+    const MsgHistory* ret = &(found_msg_history->second);
+    return ret;
+  }
+
+  typedef typename std::unordered_map<std::string, MsgHistory>::iterator MapIt;
 
 private:
   // PERF Could consider more fine-grained locking
   mutable absl::Mutex mutex_;
-  absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>> value_ ABSL_GUARDED_BY(mutex_);
-  typedef typename absl::flat_hash_map<std::string, absl::flat_hash_set<std::string>>::iterator it;
+  std::unordered_map<std::string, MsgHistory> value_ ABSL_GUARDED_BY(mutex_);
 };
 
 class GaugeImpl : public StatsSharedImpl<Gauge> {
