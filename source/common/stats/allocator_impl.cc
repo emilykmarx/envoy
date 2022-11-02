@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <type_traits>
 
 #include "envoy/stats/sink.h"
 #include "envoy/stats/stats.h"
@@ -184,32 +185,44 @@ public:
     ASSERT(count == 1);
   }
 
-  // Stats::Map
-  void insert(absl::string_view x_request_id, absl::string_view endpoint,
-              const Http::RequestHeaderMap* headers) override {
+  // Just make sure we have a record of it
+  void insert_request_recvd(absl::string_view x_request_id) {
     std::string x_request_id_copy(x_request_id);
-    /** PERF Could probably skip storing some of these headers if apps don't use them
+    absl::MutexLock lock(&mutex_);
+
+    MapIt found_req_id = value_.find(x_request_id_copy);
+    if (found_req_id == value_.end()) {
+      value_.insert(
+          std::make_pair(std::move(x_request_id_copy), MsgHistory{}));
+    }
+  }
+
+  void insert_request_sent(absl::string_view x_request_id, absl::string_view endpoint,
+                           const Http::RequestHeaderMap* headers) override {
+    std::string x_request_id_copy(x_request_id);
+    /** PERF Could probably skip storing some headers (for trace & request) if apps don't use them
      *  to decide where to send messages, or if envoy modifies them on the way out */
     std::unique_ptr<Http::RequestHeaderMap> headers_copy =
         Http::createHeaderMap<Http::RequestHeaderMapImpl>(*headers);
 
-    MsgHistory::RequestSent request_sent = {std::string(endpoint), std::move(headers_copy)};
+    MsgHistory::RequestSent msg = {std::string(endpoint), std::move(headers_copy)};
 
     absl::MutexLock lock(&mutex_);
 
     MapIt found_req_id = value_.find(x_request_id_copy);
     if (found_req_id == value_.end()) {
-      std::set<MsgHistory::RequestSent> requests_sent;
-      requests_sent.insert(std::move(request_sent));
-      MsgHistory msg_history{false, std::move(requests_sent)};
+      std::set<MsgHistory::RequestSent> msgs;
+      msgs.insert(std::move(msg));
+      MsgHistory msg_history{.requests_sent = std::move(msgs)};
       value_.insert(
           std::make_pair(std::move(x_request_id_copy), std::move(msg_history)));
     } else {
       // Request ID already existed
-      found_req_id->second.requests_sent.insert(std::move(request_sent));
+      found_req_id->second.requests_sent.insert(std::move(msg));
+      found_req_id->second.missing_request_history = false;
     }
 
-    flags_ |= Flags::Used;
+    flags_ |= Flags::Used; // TODO what's this for/when to call?
   }
 
   bool setHandled(absl::string_view x_request_id) override {
@@ -220,6 +233,34 @@ public:
     }
     found_msg_history->second.handled = true;
     return true;
+  }
+
+  bool insert_trace_recvd(absl::string_view x_request_id, absl::string_view ip,
+                          const Http::RequestHeaderMap* headers) {
+    std::string x_request_id_copy(x_request_id);
+    std::unique_ptr<Http::RequestHeaderMap> headers_copy =
+        Http::createHeaderMap<Http::RequestHeaderMapImpl>(*headers);
+
+    MsgHistory::TraceRecvd msg = {std::string(ip), std::move(headers_copy)};
+
+    absl::MutexLock lock(&mutex_);
+
+    bool trace_inserted = true;
+    MapIt found_req_id = value_.find(x_request_id_copy);
+    if (found_req_id == value_.end()) {
+      std::set<MsgHistory::TraceRecvd> msgs;
+      msgs.insert(std::move(msg));
+      MsgHistory msg_history{.missing_request_history = true, .traces_recvd = std::move(msgs)};
+      value_.insert(
+          std::make_pair(std::move(x_request_id_copy), std::move(msg_history)));
+    } else {
+      // Request ID already existed
+      auto inserted = found_req_id->second.traces_recvd.insert(std::move(msg));
+      trace_inserted = inserted.second;
+    }
+
+    flags_ |= Flags::Used;
+    return trace_inserted;
   }
 
   /** Wrapper around value().find() to avoid copying the whole map on return

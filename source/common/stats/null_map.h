@@ -23,8 +23,11 @@ public:
     MetricImpl::clear(symbol_table_);
   }
 
-  void insert(absl::string_view, absl::string_view, const Http::RequestHeaderMap*) override {}
+  void insert_request_sent(absl::string_view, absl::string_view, const Http::RequestHeaderMap*) override {}
+  void insert_request_recvd(absl::string_view) override {}
   bool setHandled(absl::string_view) override { return {}; }
+  bool insert_trace_recvd(absl::string_view, absl::string_view,
+                          const Http::RequestHeaderMap*) { return {}; }
   const MsgHistory* getMsgHistory(absl::string_view) override { return {}; }
 
   // Metric

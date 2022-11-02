@@ -137,8 +137,10 @@ class Map : public Metric {
 public:
   ~Map() override = default;
   struct MsgHistory {
-    // Whether we've already handled a trace request for this x_request_id
+    // Already received a trace and used recorded requests_sent to handle it (EASYTODO rename)
     bool handled{};
+    // No request history, just received traces (distinguishes from an known empty history)
+    bool missing_request_history{};
     // Request sent as a result of the original e2e request
     struct RequestSent {
       // Where request was sent
@@ -148,7 +150,7 @@ public:
        *  This also forces us to avoid copying around headers. */
       std::unique_ptr<Http::RequestHeaderMap> headers;
       bool operator < (const RequestSent &other) const {
-        /** TODO how should < be defined for headers? Just using path as temp.
+        /** TODO how should < be defined for headers (for both trace & request)? Just using path as temp.
          * Check which headers envoy overwrites.
          * See impl of operator == in header_map_impl.h */
         std::string my_path = std::string(headers->getPathValue());
@@ -156,12 +158,31 @@ public:
         return std::tie(endpoint, my_path) < std::tie(other.endpoint, other_path);
       }
     };
-    std::set<RequestSent> requests_sent;
+
+    std::set<RequestSent> requests_sent{};
+
+    // Trace received for the original e2e request
+    struct TraceRecvd {
+      /** Where trace was received from (IP only since that's what was easy to retrieve --
+       * possible may want full endpoint or cluster) */
+      std::string ip;
+      std::unique_ptr<Http::RequestHeaderMap> headers;
+      bool operator < (const TraceRecvd &other) const {
+        std::string my_path = std::string(headers->getPathValue());
+        std::string other_path = std::string(other.headers->getPathValue());
+        return std::tie(ip, my_path) < std::tie(other.ip, other_path);
+      }
+    };
+
+    std::set<TraceRecvd> traces_recvd{};
   };
 
-  virtual void insert(absl::string_view x_request_id, absl::string_view endpoint,
-                      const Http::RequestHeaderMap* headers) PURE;
+  virtual void insert_request_sent(absl::string_view x_request_id, absl::string_view endpoint,
+                                   const Http::RequestHeaderMap* headers) PURE;
+  virtual void insert_request_recvd(absl::string_view x_request_id) PURE;
   virtual bool setHandled(absl::string_view x_request_id) PURE;
+  virtual bool insert_trace_recvd(absl::string_view x_request_id, absl::string_view ip,
+                                  const Http::RequestHeaderMap* headers) PURE;
   virtual const MsgHistory* getMsgHistory(absl::string_view x_request_id) PURE;
   // No value() exposed, since can't copy the unique_ptr
 };
