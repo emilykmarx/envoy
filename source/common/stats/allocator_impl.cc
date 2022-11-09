@@ -16,7 +16,6 @@
 #include "source/common/stats/metric_impl.h"
 #include "source/common/stats/stat_merger.h"
 #include "source/common/stats/symbol_table.h"
-#include "source/common/http/header_map_impl.h"
 
 namespace Envoy {
 namespace Stats {
@@ -185,6 +184,21 @@ public:
     ASSERT(count == 1);
   }
 
+  /** Remove all entries older than a certain age.
+   *  This is slow, so don't call often.
+   *  Assumes map lock held. */
+  void remove_old_entries_map_lock_held() {
+    std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
+
+    for (MapIt it = value_.begin(); it != value_.end();) {
+      if (now - it->second.insert_time > map_cleanup_age) {
+        it = value_.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+
   // Just make sure we have a record of it
   void insert_request_recvd(absl::string_view x_request_id) {
     std::string x_request_id_copy(x_request_id);
@@ -193,7 +207,8 @@ public:
     MapIt found_req_id = value_.find(x_request_id_copy);
     if (found_req_id == value_.end()) {
       value_.insert(
-          std::make_pair(std::move(x_request_id_copy), MsgHistory{}));
+          std::make_pair(std::move(x_request_id_copy),
+                         MsgHistory{.insert_time = std::chrono::system_clock::now()}));
     }
   }
 
@@ -202,48 +217,40 @@ public:
     std::string x_request_id_copy(x_request_id);
     /** PERF Could probably skip storing some headers (for trace & request) if apps don't use them
      *  to decide where to send messages, or if envoy modifies them on the way out */
-    std::unique_ptr<Http::RequestHeaderMap> headers_copy =
-        Http::createHeaderMap<Http::RequestHeaderMapImpl>(*headers);
-
-    MsgHistory::RequestSent msg = {std::string(endpoint), std::move(headers_copy)};
+    MsgHistory::RequestSent request(endpoint, headers);
 
     absl::MutexLock lock(&mutex_);
 
     MapIt found_req_id = value_.find(x_request_id_copy);
     if (found_req_id == value_.end()) {
-      std::set<MsgHistory::RequestSent> msgs;
-      msgs.insert(std::move(msg));
-      MsgHistory msg_history{.requests_sent = std::move(msgs)};
+      std::set<MsgHistory::RequestSent> requests;
+      requests.insert(std::move(request));
+      MsgHistory msg_history{.insert_time = std::chrono::system_clock::now(),
+                             .requests_sent = std::move(requests)};
       value_.insert(
           std::make_pair(std::move(x_request_id_copy), std::move(msg_history)));
     } else {
       // Request ID already existed
-      found_req_id->second.requests_sent.insert(std::move(msg));
+      found_req_id->second.requests_sent.insert(std::move(request));
     }
 
+    if (value_.size() >= map_size_max) {
+      remove_old_entries_map_lock_held();
+    }
     flags_ |= Flags::Used; // TODO what's this for/when to call?
   }
 
-  bool setHandled(absl::string_view x_request_id) override {
-    absl::MutexLock lock(&mutex_);
-    MapIt found_msg_history = value_.find(std::string(x_request_id));
-    if (found_msg_history == value_.end()) {
-      return false;
-    }
-    found_msg_history->second.handled = true;
-    return true;
-  }
-
-  /** Wrapper around value().find() to avoid copying the whole map on return
-   * (which we can't do anyway given the unique_ptr).
-   * Note: This returns a pointer into the map, so caller should be careful about lifetime. */
-  const MsgHistory* getMsgHistory(absl::string_view x_request_id) override {
+  /** Find the history entry. Return a copy with the original value of handled,
+   *  setting entry in map to handled.
+   *  Copy with lock held to prevent another worker deleting it. */
+  std::any getMsgHistory(absl::string_view x_request_id) override {
     absl::MutexLock lock(&mutex_);
     MapIt found_msg_history = value_.find(std::string(x_request_id));
     if (found_msg_history == value_.end()) {
       return {};
     }
-    const MsgHistory* ret = &(found_msg_history->second);
+    MsgHistory ret = found_msg_history->second;
+    found_msg_history->second.handled = true;
     return ret;
   }
 
@@ -253,6 +260,14 @@ private:
   // PERF Could consider more fine-grained locking
   mutable absl::Mutex mutex_;
   std::unordered_map<std::string, MsgHistory> value_ ABSL_GUARDED_BY(mutex_);
+
+  /** Cleanup constants are arbitrary. If e2e request rate is 1000/sec, this would
+   *  retain last hour (+ at most 5min). Every 5min, would delete the oldest 5min. */
+
+  // Cleanup when map gets to this size
+  const size_t map_size_max{1000 * 60 * 65};
+  // During cleanup, remove requests older than this
+  const std::chrono::duration<int> map_cleanup_age{std::chrono::hours(1)};
 };
 
 class GaugeImpl : public StatsSharedImpl<Gauge> {

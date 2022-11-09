@@ -12,9 +12,43 @@
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "source/common/http/header_map_impl.h"
 
 namespace Envoy {
 namespace Stats {
+
+  struct MsgHistory {
+    // Already received a trace and used recorded requests_sent to handle it (EASYTODO rename)
+    bool handled{};
+    std::chrono::time_point<std::chrono::system_clock> insert_time;
+    // Request sent as a result of the original e2e request
+    struct RequestSent {
+      // Where request was sent
+      std::string endpoint;
+      // Request headers
+      std::unique_ptr<Http::RequestHeaderMap> headers;
+      bool operator < (const RequestSent &other) const {
+        /** TODO how should < be defined for headers (for both trace & request)? Just using path as temp.
+         * Check which headers envoy overwrites.
+         * See impl of operator == in header_map_impl.h */
+        std::string my_path = std::string(headers->getPathValue());
+        std::string other_path = std::string(other.headers->getPathValue());
+        return std::tie(endpoint, my_path) < std::tie(other.endpoint, other_path);
+      }
+
+      RequestSent(absl::string_view endpoint_, const Http::RequestHeaderMap* headers_) : endpoint(endpoint_) {
+        std::unique_ptr<Http::RequestHeaderMap> headers_copy =
+            Http::createHeaderMap<Http::RequestHeaderMapImpl>(*headers_);
+        headers = std::move(headers_copy);
+      }
+
+      RequestSent(const RequestSent& r):
+          endpoint(r.endpoint),
+          headers(Http::createHeaderMap<Http::RequestHeaderMapImpl>(*r.headers)) {}
+    };
+
+    std::set<RequestSent> requests_sent{};
+  };
 
 class AllocatorImpl : public Allocator {
 public:

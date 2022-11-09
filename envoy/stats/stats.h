@@ -4,12 +4,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <any>
 
 #include "envoy/common/pure.h"
 #include "envoy/stats/refcount_ptr.h"
 #include "envoy/stats/tag.h"
 #include "envoy/http/header_map.h"
-//#include "source/common/http/header_map_impl.h"
 
 #include "absl/strings/string_view.h"
 //#include "absl/container/flat_hash_set.h"
@@ -136,36 +136,12 @@ using CounterSharedPtr = RefcountPtr<Counter>;
 class Map : public Metric {
 public:
   ~Map() override = default;
-  struct MsgHistory {
-    // Already received a trace and used recorded requests_sent to handle it (EASYTODO rename)
-    bool handled{};
-    // Request sent as a result of the original e2e request
-    struct RequestSent {
-      // Where request was sent
-      std::string endpoint;
-      /** Request headers.
-       *  Would be a RequestHeaderMapImpl but I don't want to deal with circular deps.
-       *  This also forces us to avoid copying around headers. */
-      std::unique_ptr<Http::RequestHeaderMap> headers;
-      bool operator < (const RequestSent &other) const {
-        /** TODO how should < be defined for headers (for both trace & request)? Just using path as temp.
-         * Check which headers envoy overwrites.
-         * See impl of operator == in header_map_impl.h */
-        std::string my_path = std::string(headers->getPathValue());
-        std::string other_path = std::string(other.headers->getPathValue());
-        return std::tie(endpoint, my_path) < std::tie(other.endpoint, other_path);
-      }
-    };
-
-    std::set<RequestSent> requests_sent{};
-  };
-
   virtual void insert_request_sent(absl::string_view x_request_id, absl::string_view endpoint,
                                    const Http::RequestHeaderMap* headers) PURE;
   virtual void insert_request_recvd(absl::string_view x_request_id) PURE;
-  virtual bool setHandled(absl::string_view x_request_id) PURE;
-  virtual const MsgHistory* getMsgHistory(absl::string_view x_request_id) PURE;
-  // No value() exposed, since can't copy the unique_ptr
+  // Return type is really an optional MsgHistory, but circular deps
+  virtual std::any getMsgHistory(absl::string_view x_request_id) PURE;
+  // No value() exposed, to avoid copying the whole thing
 };
 
 using MapSharedPtr = RefcountPtr<Map>;
