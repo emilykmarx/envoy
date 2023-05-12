@@ -284,7 +284,7 @@ void SubsetLoadBalancer::initSelectorFallbackSubset(
 }
 
 HostConstSharedPtr SubsetLoadBalancer::chooseHost(LoadBalancerContext* context) {
-  HostConstSharedPtr override_host = LoadBalancerContextBase::selectOverrideHost(
+  HostConstSharedPtr override_host = ZoneAwareLoadBalancerBase::selectOverrideHost(
       cross_priority_host_map_.get(), override_host_status_, context);
   if (override_host != nullptr) {
     return override_host;

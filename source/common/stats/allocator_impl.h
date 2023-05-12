@@ -17,13 +17,14 @@
 namespace Envoy {
 namespace Stats {
 
+  // This is defined here to avoid circular deps in stats.h
   struct MsgHistory {
     // Already received a trace and used recorded requests_sent to handle it (EASYTODO rename)
     bool handled{};
     std::chrono::time_point<std::chrono::system_clock> insert_time;
     // Request sent as a result of the original e2e request
     struct RequestSent {
-      // Where request was sent
+      // Where request was sent (<cluster name>:IP:port)
       std::string endpoint;
       // Request headers
       std::unique_ptr<Http::RequestHeaderMap> headers;

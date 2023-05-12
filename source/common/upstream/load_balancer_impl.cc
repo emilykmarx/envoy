@@ -546,7 +546,7 @@ HostStatusSet LoadBalancerContextBase::createOverrideHostStatus(
   return override_host_status;
 }
 
-HostConstSharedPtr LoadBalancerContextBase::selectOverrideHost(const HostMap* host_map,
+HostConstSharedPtr ZoneAwareLoadBalancerBase::selectOverrideHost(const HostMap* host_map,
                                                                HostStatusSet status,
                                                                LoadBalancerContext* context) {
   if (context == nullptr) {
@@ -559,6 +559,12 @@ HostConstSharedPtr LoadBalancerContextBase::selectOverrideHost(const HostMap* ho
   }
 
   if (host_map == nullptr) {
+    // TODO when send bits back to trace originator: Also indicate that we did this
+    // (Note: not sure what default log level is for envoy within istio)
+    if (!override_host.value().empty()) {
+      ENVOY_LOG(warn, "Load balancer not sending WTF trace to recorded host {}: no host map",
+                override_host.value());
+    }
     return nullptr;
   }
 
@@ -566,6 +572,11 @@ HostConstSharedPtr LoadBalancerContextBase::selectOverrideHost(const HostMap* ho
 
   // The override host cannot be found in the host map.
   if (host_iter == host_map->end()) {
+    // TODO when send bits back to trace originator: Also indicate that we did this
+    if (!override_host.value().empty()) {
+      ENVOY_LOG(warn, "Load balancer not sending WTF trace to recorded host {}: host not found in map",
+                override_host.value());
+    }
     return nullptr;
   }
 
@@ -575,13 +586,18 @@ HostConstSharedPtr LoadBalancerContextBase::selectOverrideHost(const HostMap* ho
   if (status[static_cast<size_t>(host->health())]) {
     return host;
   }
+
+  // TODO when send bits back to trace originator: Also indicate that we did this
+  ENVOY_LOG(warn, "Load balancer not sending WTF trace to recorded host {}: host not healthy",
+            override_host.value());
   return nullptr;
 }
 
 HostConstSharedPtr ZoneAwareLoadBalancerBase::chooseHost(LoadBalancerContext* context) {
-  HostConstSharedPtr host = LoadBalancerContextBase::selectOverrideHost(
+  HostConstSharedPtr host = selectOverrideHost(
       cross_priority_host_map_.get(), override_host_status_, context);
   if (host != nullptr) {
+    ENVOY_LOG(trace, "lb: selected override host {}", host->address()->asString());
     return host;
   }
 
@@ -998,8 +1014,8 @@ double EdfLoadBalancerBase::applySlowStartFactor(double host_weight, const Host&
       host.health() == Upstream::Host::Health::Healthy) {
     aggression_ = aggression_runtime_ != absl::nullopt ? aggression_runtime_.value().value() : 1.0;
     if (aggression_ <= 0.0 || std::isnan(aggression_)) {
-      ENVOY_LOG_EVERY_POW_2(error, "Invalid runtime value provided for aggression parameter, "
-                                   "aggression cannot be less than 0.0");
+      //ENVOY_LOG_EVERY_POW_2(error, "Invalid runtime value provided for aggression parameter, "
+       //                            "aggression cannot be less than 0.0");
       aggression_ = 1.0;
     }
 

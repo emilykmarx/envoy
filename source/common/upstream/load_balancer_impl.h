@@ -175,10 +175,6 @@ private:
 
 class LoadBalancerContextBase : public LoadBalancerContext {
 public:
-  // A utility function to select override host from host map according to load balancer context.
-  static HostConstSharedPtr selectOverrideHost(const HostMap* host_map, HostStatusSet status,
-                                               LoadBalancerContext* context);
-
   // A utility function to create override host status from lb config.
   static HostStatusSet createOverrideHostStatus(
       const envoy::config::cluster::v3::Cluster::CommonLbConfig& common_config);
@@ -213,9 +209,14 @@ public:
 /**
  * Base class for zone aware load balancers
  */
-class ZoneAwareLoadBalancerBase : public LoadBalancerBase {
+class ZoneAwareLoadBalancerBase : public LoadBalancerBase,
+                                  Logger::Loggable<Logger::Id::upstream> {
 public:
   HostConstSharedPtr chooseHost(LoadBalancerContext* context) override;
+
+  // A utility function to select override host from host map according to load balancer context.
+  static HostConstSharedPtr selectOverrideHost(const HostMap* host_map, HostStatusSet status,
+                                               LoadBalancerContext* context);
 
 protected:
   // Both priority_set and local_priority_set if non-null must have at least one host set.
@@ -422,8 +423,7 @@ private:
  * This base class also supports unweighted selection which derived classes can use to customize
  * behavior. Derived classes can also override how host weight is determined when in weighted mode.
  */
-class EdfLoadBalancerBase : public ZoneAwareLoadBalancerBase,
-                            Logger::Loggable<Logger::Id::upstream> {
+class EdfLoadBalancerBase : public ZoneAwareLoadBalancerBase {
 public:
   EdfLoadBalancerBase(
       const PrioritySet& priority_set, const PrioritySet* local_priority_set, ClusterStats& stats,
@@ -668,8 +668,8 @@ private:
 /**
  * Random load balancer that picks a random host out of all hosts.
  */
-class RandomLoadBalancer : public ZoneAwareLoadBalancerBase,
-                           Logger::Loggable<Logger::Id::upstream> {
+class RandomLoadBalancer : public ZoneAwareLoadBalancerBase {
+
 public:
   RandomLoadBalancer(const PrioritySet& priority_set, const PrioritySet* local_priority_set,
                      ClusterStats& stats, Runtime::Loader& runtime, Random::RandomGenerator& random,
